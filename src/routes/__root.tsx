@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { BeaconCursor } from "@/components/fx/BeaconCursor";
 
 function NotFoundComponent() {
   return (
@@ -114,6 +115,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
+      <BeaconCursor />
     </QueryClientProvider>
   );
 }

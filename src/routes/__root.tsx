@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { BeaconCursor } from "@/components/fx/BeaconCursor";
 
 function NotFoundComponent() {
   return (

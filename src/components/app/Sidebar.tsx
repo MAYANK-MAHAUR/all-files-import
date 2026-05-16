@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Send, ScrollText, FileText, Layers, BarChart3, Settings, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Send, ScrollText, FileText, Layers, BarChart3, Settings, ShieldCheck, Bot } from "lucide-react";
 
 const items: { to: string; label: string; icon: any; exact?: boolean }[] = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -7,6 +7,7 @@ const items: { to: string; label: string; icon: any; exact?: boolean }[] = [
   { to: "/app/ledger", label: "Ledger", icon: ScrollText },
   { to: "/app/invoices", label: "Invoices", icon: FileText },
   { to: "/app/batch", label: "Batch Payouts", icon: Layers },
+  { to: "/app/agents", label: "AI Agents", icon: Bot },
   { to: "/app/reports", label: "Reports", icon: BarChart3 },
   { to: "/app/settings", label: "Settings", icon: Settings },
 ];

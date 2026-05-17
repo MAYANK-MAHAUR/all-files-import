@@ -11,7 +11,21 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppSettingsRouteImport } from './routes/app.settings'
+import { Route as AppSendRouteImport } from './routes/app.send'
+import { Route as AppReviewRouteImport } from './routes/app.review'
+import { Route as AppReportsRouteImport } from './routes/app.reports'
+import { Route as AppMorphRouteImport } from './routes/app.morph'
+import { Route as AppLedgerRouteImport } from './routes/app.ledger'
+import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
+import { Route as AppBatchRouteImport } from './routes/app.batch'
+import { Route as AppAssistRouteImport } from './routes/app.assist'
 import { Route as AppAgentsRouteImport } from './routes/app.agents'
+import { Route as ApiVaultRecordsRouteImport } from './routes/api.vault-records'
+import { Route as ApiRecordsRouteImport } from './routes/api.records'
+import { Route as ApiExtensionIntentRouteImport } from './routes/api.extension-intent'
+import { Route as ApiAgentMemoryRouteImport } from './routes/api.agent-memory'
 
 const AppRoute = AppRouteImport.update({
   id: '/app',
@@ -23,39 +37,205 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSendRoute = AppSendRouteImport.update({
+  id: '/send',
+  path: '/send',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReviewRoute = AppReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMorphRoute = AppMorphRouteImport.update({
+  id: '/morph',
+  path: '/morph',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLedgerRoute = AppLedgerRouteImport.update({
+  id: '/ledger',
+  path: '/ledger',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInvoicesRoute = AppInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBatchRoute = AppBatchRouteImport.update({
+  id: '/batch',
+  path: '/batch',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAssistRoute = AppAssistRouteImport.update({
+  id: '/assist',
+  path: '/assist',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAgentsRoute = AppAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiVaultRecordsRoute = ApiVaultRecordsRouteImport.update({
+  id: '/api/vault-records',
+  path: '/api/vault-records',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRecordsRoute = ApiRecordsRouteImport.update({
+  id: '/api/records',
+  path: '/api/records',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiExtensionIntentRoute = ApiExtensionIntentRouteImport.update({
+  id: '/api/extension-intent',
+  path: '/api/extension-intent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentMemoryRoute = ApiAgentMemoryRouteImport.update({
+  id: '/api/agent-memory',
+  path: '/api/agent-memory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
+  '/api/agent-memory': typeof ApiAgentMemoryRoute
+  '/api/extension-intent': typeof ApiExtensionIntentRoute
+  '/api/records': typeof ApiRecordsRoute
+  '/api/vault-records': typeof ApiVaultRecordsRoute
   '/app/agents': typeof AppAgentsRoute
+  '/app/assist': typeof AppAssistRoute
+  '/app/batch': typeof AppBatchRoute
+  '/app/invoices': typeof AppInvoicesRoute
+  '/app/ledger': typeof AppLedgerRoute
+  '/app/morph': typeof AppMorphRoute
+  '/app/reports': typeof AppReportsRoute
+  '/app/review': typeof AppReviewRoute
+  '/app/send': typeof AppSendRoute
+  '/app/settings': typeof AppSettingsRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/app': typeof AppRouteWithChildren
+  '/api/agent-memory': typeof ApiAgentMemoryRoute
+  '/api/extension-intent': typeof ApiExtensionIntentRoute
+  '/api/records': typeof ApiRecordsRoute
+  '/api/vault-records': typeof ApiVaultRecordsRoute
   '/app/agents': typeof AppAgentsRoute
+  '/app/assist': typeof AppAssistRoute
+  '/app/batch': typeof AppBatchRoute
+  '/app/invoices': typeof AppInvoicesRoute
+  '/app/ledger': typeof AppLedgerRoute
+  '/app/morph': typeof AppMorphRoute
+  '/app/reports': typeof AppReportsRoute
+  '/app/review': typeof AppReviewRoute
+  '/app/send': typeof AppSendRoute
+  '/app/settings': typeof AppSettingsRoute
+  '/app': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/app': typeof AppRouteWithChildren
+  '/api/agent-memory': typeof ApiAgentMemoryRoute
+  '/api/extension-intent': typeof ApiExtensionIntentRoute
+  '/api/records': typeof ApiRecordsRoute
+  '/api/vault-records': typeof ApiVaultRecordsRoute
   '/app/agents': typeof AppAgentsRoute
+  '/app/assist': typeof AppAssistRoute
+  '/app/batch': typeof AppBatchRoute
+  '/app/invoices': typeof AppInvoicesRoute
+  '/app/ledger': typeof AppLedgerRoute
+  '/app/morph': typeof AppMorphRoute
+  '/app/reports': typeof AppReportsRoute
+  '/app/review': typeof AppReviewRoute
+  '/app/send': typeof AppSendRoute
+  '/app/settings': typeof AppSettingsRoute
+  '/app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/app' | '/app/agents'
+  fullPaths:
+    | '/'
+    | '/app'
+    | '/api/agent-memory'
+    | '/api/extension-intent'
+    | '/api/records'
+    | '/api/vault-records'
+    | '/app/agents'
+    | '/app/assist'
+    | '/app/batch'
+    | '/app/invoices'
+    | '/app/ledger'
+    | '/app/morph'
+    | '/app/reports'
+    | '/app/review'
+    | '/app/send'
+    | '/app/settings'
+    | '/app/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/app' | '/app/agents'
-  id: '__root__' | '/' | '/app' | '/app/agents'
+  to:
+    | '/'
+    | '/api/agent-memory'
+    | '/api/extension-intent'
+    | '/api/records'
+    | '/api/vault-records'
+    | '/app/agents'
+    | '/app/assist'
+    | '/app/batch'
+    | '/app/invoices'
+    | '/app/ledger'
+    | '/app/morph'
+    | '/app/reports'
+    | '/app/review'
+    | '/app/send'
+    | '/app/settings'
+    | '/app'
+  id:
+    | '__root__'
+    | '/'
+    | '/app'
+    | '/api/agent-memory'
+    | '/api/extension-intent'
+    | '/api/records'
+    | '/api/vault-records'
+    | '/app/agents'
+    | '/app/assist'
+    | '/app/batch'
+    | '/app/invoices'
+    | '/app/ledger'
+    | '/app/morph'
+    | '/app/reports'
+    | '/app/review'
+    | '/app/send'
+    | '/app/settings'
+    | '/app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  ApiAgentMemoryRoute: typeof ApiAgentMemoryRoute
+  ApiExtensionIntentRoute: typeof ApiExtensionIntentRoute
+  ApiRecordsRoute: typeof ApiRecordsRoute
+  ApiVaultRecordsRoute: typeof ApiVaultRecordsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -74,6 +254,76 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/': {
+      id: '/app/'
+      path: '/'
+      fullPath: '/app/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/settings': {
+      id: '/app/settings'
+      path: '/settings'
+      fullPath: '/app/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/send': {
+      id: '/app/send'
+      path: '/send'
+      fullPath: '/app/send'
+      preLoaderRoute: typeof AppSendRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/review': {
+      id: '/app/review'
+      path: '/review'
+      fullPath: '/app/review'
+      preLoaderRoute: typeof AppReviewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/reports': {
+      id: '/app/reports'
+      path: '/reports'
+      fullPath: '/app/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/morph': {
+      id: '/app/morph'
+      path: '/morph'
+      fullPath: '/app/morph'
+      preLoaderRoute: typeof AppMorphRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/ledger': {
+      id: '/app/ledger'
+      path: '/ledger'
+      fullPath: '/app/ledger'
+      preLoaderRoute: typeof AppLedgerRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/invoices': {
+      id: '/app/invoices'
+      path: '/invoices'
+      fullPath: '/app/invoices'
+      preLoaderRoute: typeof AppInvoicesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/batch': {
+      id: '/app/batch'
+      path: '/batch'
+      fullPath: '/app/batch'
+      preLoaderRoute: typeof AppBatchRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/assist': {
+      id: '/app/assist'
+      path: '/assist'
+      fullPath: '/app/assist'
+      preLoaderRoute: typeof AppAssistRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/agents': {
       id: '/app/agents'
       path: '/agents'
@@ -81,15 +331,63 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/vault-records': {
+      id: '/api/vault-records'
+      path: '/api/vault-records'
+      fullPath: '/api/vault-records'
+      preLoaderRoute: typeof ApiVaultRecordsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/records': {
+      id: '/api/records'
+      path: '/api/records'
+      fullPath: '/api/records'
+      preLoaderRoute: typeof ApiRecordsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/extension-intent': {
+      id: '/api/extension-intent'
+      path: '/api/extension-intent'
+      fullPath: '/api/extension-intent'
+      preLoaderRoute: typeof ApiExtensionIntentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-memory': {
+      id: '/api/agent-memory'
+      path: '/api/agent-memory'
+      fullPath: '/api/agent-memory'
+      preLoaderRoute: typeof ApiAgentMemoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRoute
+  AppAssistRoute: typeof AppAssistRoute
+  AppBatchRoute: typeof AppBatchRoute
+  AppInvoicesRoute: typeof AppInvoicesRoute
+  AppLedgerRoute: typeof AppLedgerRoute
+  AppMorphRoute: typeof AppMorphRoute
+  AppReportsRoute: typeof AppReportsRoute
+  AppReviewRoute: typeof AppReviewRoute
+  AppSendRoute: typeof AppSendRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAgentsRoute: AppAgentsRoute,
+  AppAssistRoute: AppAssistRoute,
+  AppBatchRoute: AppBatchRoute,
+  AppInvoicesRoute: AppInvoicesRoute,
+  AppLedgerRoute: AppLedgerRoute,
+  AppMorphRoute: AppMorphRoute,
+  AppReportsRoute: AppReportsRoute,
+  AppReviewRoute: AppReviewRoute,
+  AppSendRoute: AppSendRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppIndexRoute: AppIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -97,7 +395,21 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  ApiAgentMemoryRoute: ApiAgentMemoryRoute,
+  ApiExtensionIntentRoute: ApiExtensionIntentRoute,
+  ApiRecordsRoute: ApiRecordsRoute,
+  ApiVaultRecordsRoute: ApiVaultRecordsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

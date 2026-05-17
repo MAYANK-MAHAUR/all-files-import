@@ -1,0 +1,881 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { Topbar } from "@/components/app/Topbar";
+import {
+  connectWallet,
+  isAddress,
+  morphHoodi,
+  sendErc20Payment,
+  sendNativePayment,
+  shortAddress,
+  waitForTransactionReceipt,
+} from "@/lib/morph";
+import {
+  deriveVaultKey,
+  encryptPrivateMetadata,
+  rememberVaultSession,
+  signVaultUnlock,
+} from "@/lib/crypto-vault";
+import {
+  saveEncryptedVaultRecord,
+  syncEncryptedVaultRecord,
+  toPrivateMetadata,
+  toPublicRecord,
+} from "@/lib/paymemo-vault";
+import { createRecordId, normalizeRecord } from "@/lib/paymemo-schema";
+import {
+  Lock,
+  Wand2,
+  Wallet,
+  Plus,
+  Trash2,
+  Search,
+  Zap,
+  Shield,
+  ChevronDown,
+  ArrowDown,
+  Fuel,
+  Network,
+  Check,
+  X,
+  Info,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useMemo, useState } from "react";
+
+export const Route = createFileRoute("/app/send")({
+  head: () => ({ meta: [{ title: "Send Payment · PayMemo" }] }),
+  component: Send,
+});
+
+type Asset = {
+  symbol: string;
+  name: string;
+  balance: number;
+  usd: number;
+  type: "stable" | "native" | "token" | "nft";
+  chain: string;
+  decimals?: number;
+  envContractKey?: string;
+};
+
+const ASSETS: Asset[] = [
+  {
+    symbol: "USDC",
+    name: "USD Coin",
+    balance: 48230.55,
+    usd: 1.0,
+    type: "stable",
+    chain: "Morph",
+    decimals: 6,
+    envContractKey: "VITE_MORPH_USDC_ADDRESS",
+  },
+  {
+    symbol: "USDT",
+    name: "Tether",
+    balance: 12500.0,
+    usd: 1.0,
+    type: "stable",
+    chain: "Morph",
+    decimals: 6,
+    envContractKey: "VITE_MORPH_USDT_ADDRESS",
+  },
+  {
+    symbol: "PYUSD",
+    name: "PayPal USD",
+    balance: 3200.18,
+    usd: 1.0,
+    type: "stable",
+    chain: "Morph",
+    decimals: 6,
+    envContractKey: "VITE_MORPH_PYUSD_ADDRESS",
+  },
+  {
+    symbol: "DAI",
+    name: "Dai Stablecoin",
+    balance: 9810.42,
+    usd: 1.0,
+    type: "stable",
+    chain: "Morph",
+    decimals: 18,
+    envContractKey: "VITE_MORPH_DAI_ADDRESS",
+  },
+  { symbol: "ETH", name: "Ether", balance: 4.2031, usd: 3420.5, type: "native", chain: "Morph" },
+  {
+    symbol: "WBTC",
+    name: "Wrapped Bitcoin",
+    balance: 0.1842,
+    usd: 96200.0,
+    type: "token",
+    chain: "Morph",
+  },
+  {
+    symbol: "MORPH",
+    name: "Morph Token",
+    balance: 12500,
+    usd: 0.42,
+    type: "native",
+    chain: "Morph",
+  },
+  { symbol: "ARB", name: "Arbitrum", balance: 820.5, usd: 0.78, type: "token", chain: "Morph" },
+  { symbol: "LINK", name: "Chainlink", balance: 142.3, usd: 18.4, type: "token", chain: "Morph" },
+];
+
+const CATS = [
+  "Payroll",
+  "Vendor Payment",
+  "Invoice",
+  "Bridge",
+  "Swap",
+  "Business Expense",
+  "Refund",
+  "Personal",
+  "Transfer to Self",
+  "Income",
+  "Subscription",
+  "API Payment",
+  "Agent Task Payment",
+];
+const SPEEDS = [
+  { id: "standard", label: "Standard", time: "~12s", gwei: 0.08 },
+  { id: "fast", label: "Fast", time: "~6s", gwei: 0.14 },
+  { id: "instant", label: "Instant", time: "~2s", gwei: 0.22 },
+];
+
+type Recipient = { id: string; address: string; name: string; amount: string; note: string };
+
+function newRecipient(): Recipient {
+  return {
+    id: Math.random().toString(36).slice(2, 9),
+    address: "",
+    name: "",
+    amount: "",
+    note: "",
+  };
+}
+
+type FlowStep = "idle" | "intent" | "signature" | "chain" | "confirmed" | "failed";
+
+function getTokenContract(asset: Asset) {
+  if (!asset.envContractKey) return "";
+  return (import.meta.env[asset.envContractKey] as string | undefined) ?? "";
+}
+
+function Send() {
+  const [mode, setMode] = useState<"single" | "batch">("single");
+  const [walletAddress, setWalletAddress] = useState("");
+  const [walletMessage, setWalletMessage] = useState(
+    "Connect a wallet to prepare Morph Hoodi signing.",
+  );
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+  const [asset, setAsset] = useState<Asset>(
+    ASSETS.find((item) => item.symbol === "ETH") ?? ASSETS[0],
+  );
+  const [search, setSearch] = useState("");
+  const [flowStep, setFlowStep] = useState<FlowStep>("idle");
+  const [flowMessage, setFlowMessage] = useState(
+    "Intent not saved yet. Private context stays local until you unlock the vault.",
+  );
+  const [txHash, setTxHash] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const [cat, setCat] = useState("Vendor Payment");
+  const [tag, setTag] = useState("Project: Mercury-Revamp");
+  const [speed, setSpeed] = useState("fast");
+
+  const [single, setSingle] = useState<Recipient>({
+    id: "s1",
+    address: "",
+    name: "Aether Studio",
+    amount: "0.001",
+    note: "Logo design milestone 2",
+  });
+  const [batch, setBatch] = useState<Recipient[]>([
+    {
+      id: "b1",
+      address: "0x44a1...f72d",
+      name: "Lina K.",
+      amount: "5400",
+      note: "October payroll",
+    },
+    {
+      id: "b2",
+      address: "0x88c0...91ae",
+      name: "Marco P.",
+      amount: "5400",
+      note: "October payroll",
+    },
+    {
+      id: "b3",
+      address: "0xe2bd...0017",
+      name: "Priya S.",
+      amount: "5400",
+      note: "October payroll",
+    },
+  ]);
+
+  const filteredAssets = useMemo(
+    () =>
+      ASSETS.filter((a) => `${a.symbol} ${a.name}`.toLowerCase().includes(search.toLowerCase())),
+    [search],
+  );
+
+  const totalAmount =
+    mode === "single"
+      ? Number(single.amount || 0)
+      : batch.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalUsd = totalAmount * asset.usd;
+  const gas = SPEEDS.find((s) => s.id === speed)!.gwei;
+  const gasUsd = gas * (mode === "batch" ? batch.length : 1) * 0.42;
+  const connected = Boolean(walletAddress);
+  const lifecycleOn = {
+    Intent: flowStep !== "idle",
+    Sign: ["signature", "chain", "confirmed"].includes(flowStep),
+    Verify: ["chain", "confirmed"].includes(flowStep),
+    Vault: flowStep === "confirmed",
+  };
+
+  const prepareWallet = async () => {
+    try {
+      const account = await connectWallet();
+      setWalletAddress(account);
+      setWalletMessage("Wallet connected and switched to Morph Hoodi.");
+    } catch {
+      setWalletMessage("No browser wallet found. Install MetaMask, Rabby, OKX, or Bitget to sign.");
+    }
+  };
+
+  const saveEncryptedRecord = async (
+    id: string,
+    status: "pending_signature" | "pending_chain" | "confirmed" | "failed",
+    vaultKey: CryptoKey,
+    account: string,
+    hash = "",
+  ) => {
+    const recipient = mode === "single" ? single : batch[0];
+    const normalized = normalizeRecord({
+      id,
+      mode: "direct",
+      status,
+      chainId: morphHoodi.chainId,
+      chainName: morphHoodi.name,
+      txHash: hash || undefined,
+      from: account,
+      to: recipient.address,
+      amount: mode === "single" ? single.amount : String(totalAmount),
+      token: asset.symbol,
+      category: cat as Parameters<typeof normalizeRecord>[0]["category"],
+      counterparty: recipient.name,
+      note:
+        mode === "single"
+          ? single.note
+          : `${batch.length} payout items. ${batch.map((item) => `${item.name}: ${item.amount}`).join("; ")}`,
+      project: tag,
+      source: "paymemo-dapp",
+    });
+
+    const encryptedMetadata = await encryptPrivateMetadata(
+      toPrivateMetadata(normalized),
+      vaultKey,
+      account,
+    );
+
+    const stored = saveEncryptedVaultRecord({
+      id: normalized.id ?? "",
+      walletAddress: account,
+      publicRecord: toPublicRecord(normalized),
+      encryptedMetadata,
+      syncStatus: "local",
+      updatedAt: new Date().toISOString(),
+    });
+
+    try {
+      const synced = await syncEncryptedVaultRecord(stored);
+      saveEncryptedVaultRecord({ ...synced.record, syncStatus: "synced" });
+    } catch {
+      saveEncryptedVaultRecord({ ...stored, syncStatus: "sync-failed" });
+    }
+
+    return normalized;
+  };
+
+  const createIntentAndSend = async () => {
+    if (sending) return;
+
+    try {
+      setSending(true);
+      setTxHash("");
+      setFlowStep("intent");
+
+      const account = walletAddress || (await connectWallet());
+      setWalletAddress(account);
+      setWalletMessage("Wallet connected. Unlock the PayMemo vault to encrypt this intent.");
+
+      const recipient = mode === "single" ? single : batch[0];
+      if (!recipient.address || !isAddress(recipient.address)) {
+        throw new Error("Enter a full recipient address before signing.");
+      }
+
+      const intentId = createRecordId("intent");
+      const signature = await signVaultUnlock(account);
+      rememberVaultSession(account, signature);
+      const vaultKey = await deriveVaultKey(signature, account);
+
+      await saveEncryptedRecord(intentId, "pending_signature", vaultKey, account);
+      setFlowStep("signature");
+      setFlowMessage("Encrypted pending intent saved. Waiting for wallet signature.");
+
+      let hash = "";
+      if (asset.symbol === "ETH") {
+        hash = await sendNativePayment(account, recipient.address, recipient.amount);
+      } else {
+        const tokenContract = getTokenContract(asset);
+        if (!tokenContract) {
+          throw new Error(
+            `${asset.symbol} contract address is not configured. Use ETH for the live Morph Hoodi demo or set ${asset.envContractKey}.`,
+          );
+        }
+        hash = await sendErc20Payment({
+          from: account,
+          tokenContract,
+          to: recipient.address,
+          amount: recipient.amount,
+          decimals: asset.decimals ?? 6,
+        });
+      }
+
+      setTxHash(hash);
+      await saveEncryptedRecord(intentId, "pending_chain", vaultKey, account, hash);
+      setFlowStep("chain");
+      setFlowMessage("Transaction submitted. Waiting for Morph Hoodi receipt confirmation.");
+
+      const receipt = await waitForTransactionReceipt(hash);
+      if (receipt.status !== "0x1") {
+        await saveEncryptedRecord(intentId, "failed", vaultKey, account, hash);
+        setFlowStep("failed");
+        setFlowMessage("Morph returned a failed receipt. The record stays marked failed.");
+        return;
+      }
+
+      await saveEncryptedRecord(intentId, "confirmed", vaultKey, account, hash);
+      setFlowStep("confirmed");
+      setFlowMessage("Confirmed onchain and saved to your encrypted private ledger.");
+    } catch (error) {
+      setFlowStep("failed");
+      setFlowMessage(error instanceof Error ? error.message : "Unable to create PayMemo intent.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      <Topbar title="Send Payment" subtitle="Add meaning before you sign." />
+
+      <div className="p-6 lg:p-10 grid lg:grid-cols-[1fr_440px] gap-8">
+        <div className="space-y-8">
+          {/* Wallet / Network bar */}
+          <div className="rounded-3xl bg-white p-4 shadow-float ring-1 ring-ink/10 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={prepareWallet}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold border transition-colors ${connected ? "bg-cream/70 border-ink/35 text-ink" : "bg-ink text-cream border-ink"}`}
+              >
+                <Wallet className="h-4 w-4" />
+                {connected ? shortAddress(walletAddress) : "Connect Wallet"}
+              </button>
+              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-mint/15 border border-mint/30 text-ink">
+                <Network className="h-3 w-3" /> Morph Hoodi
+              </span>
+              <span className="hidden md:inline-flex items-center gap-1 text-xs text-ink/55">
+                <span className="h-1.5 w-1.5 rounded-full bg-mint animate-pulse-glow" /> Block
+                18,402,113
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <WalletPill src="MetaMask" active />
+              <WalletPill src="WalletConnect" />
+              <WalletPill src="Coinbase" />
+              <WalletPill src="Rabby" />
+            </div>
+            <div className="basis-full text-xs text-ink/55">{walletMessage}</div>
+          </div>
+
+          {/* Mode toggle */}
+          <div className="rounded-3xl bg-white p-1.5 shadow-float ring-1 ring-ink/10 inline-flex">
+            {(["single", "batch"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`px-5 py-2 rounded-2xl text-sm font-semibold capitalize transition-colors ${mode === m ? "bg-ink text-cream" : "text-ink/60 hover:text-ink"}`}
+              >
+                {m === "single" ? "Single Send" : `Batch (${batch.length})`}
+              </button>
+            ))}
+          </div>
+
+          {/* Form card */}
+          <div className="rounded-3xl bg-ink/[0.025] shadow-float ring-1 ring-ink/10 overflow-hidden">
+            {/* Asset picker bar */}
+            <div className="px-7 pt-7 pb-2 flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-ink/55">
+                  Paying with
+                </div>
+                <button
+                  onClick={() => setAssetPickerOpen(true)}
+                  className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-cream/70 px-4 py-2.5 text-sm hover:bg-cream transition-colors"
+                >
+                  <AssetIcon symbol={asset.symbol} />
+                  <span className="font-semibold">{asset.symbol}</span>
+                  <span className="text-ink/50">{asset.name}</span>
+                  <ChevronDown className="h-4 w-4 text-ink/40" />
+                </button>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-ink/55">
+                  Available
+                </div>
+                <div className="mt-2 font-mono text-sm font-semibold">
+                  {asset.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}{" "}
+                  {asset.symbol}
+                </div>
+                <div className="text-[11px] text-ink/50 font-mono">
+                  $
+                  {(asset.balance * asset.usd).toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="mx-7 h-px bg-ink/10" />
+
+            {/* Single mode */}
+            {mode === "single" && (
+              <div className="px-7 pt-8 pb-4 space-y-7">
+                <div className="grid sm:grid-cols-2 gap-6">
+                  <Field label="Recipient address or ENS">
+                    <input
+                      value={single.address}
+                      onChange={(e) => setSingle({ ...single, address: e.target.value })}
+                      placeholder="0x... or vitalik.eth"
+                      className="input"
+                    />
+                  </Field>
+                  <Field label="Counterparty name (private)">
+                    <input
+                      value={single.name}
+                      onChange={(e) => setSingle({ ...single, name: e.target.value })}
+                      className="input"
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Amount">
+                  <div className="rounded-2xl bg-cream/50 p-5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <input
+                        value={single.amount}
+                        onChange={(e) =>
+                          setSingle({ ...single, amount: e.target.value.replace(/[^0-9.]/g, "") })
+                        }
+                        placeholder="0.00"
+                        className="bg-transparent outline-none w-full text-3xl font-semibold tracking-tight font-mono"
+                      />
+                      <span className="text-sm font-semibold">{asset.symbol}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs text-ink/55">
+                      <span className="font-mono">
+                        ~ $
+                        {(Number(single.amount || 0) * asset.usd).toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {[25, 50, 75, 100].map((p) => (
+                          <button
+                            key={p}
+                            onClick={() =>
+                              setSingle({
+                                ...single,
+                                amount: String(((asset.balance * p) / 100).toFixed(4)),
+                              })
+                            }
+                            className="px-2 py-0.5 rounded-md bg-white text-ink/70 text-[10px] font-semibold shadow-soft"
+                          >
+                            {p === 100 ? "MAX" : `${p}%`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </Field>
+
+                <Field label="Private note (encrypted)">
+                  <textarea
+                    value={single.note}
+                    onChange={(e) => setSingle({ ...single, note: e.target.value })}
+                    rows={2}
+                    className="input resize-none"
+                  />
+                </Field>
+              </div>
+            )}
+
+            {/* Batch mode */}
+            {mode === "batch" && (
+              <div className="px-7 pt-8 pb-4 space-y-3">
+                <div className="text-xs text-ink/55 flex items-center justify-between">
+                  <span>One signature, all transfers atomic.</span>
+                  <button className="inline-flex items-center gap-1 text-ink hover:text-pink">
+                    <Wand2 className="h-3 w-3" /> Import CSV
+                  </button>
+                </div>
+                {batch.map((r, i) => (
+                  <div
+                    key={r.id}
+                    className="grid grid-cols-[28px_1fr_1fr_140px_28px] gap-2 items-center bg-cream/50 rounded-2xl px-3 py-2.5"
+                  >
+                    <span className="text-[11px] font-mono text-ink/40 text-center">{i + 1}</span>
+                    <input
+                      value={r.address}
+                      onChange={(e) =>
+                        setBatch(
+                          batch.map((b) => (b.id === r.id ? { ...b, address: e.target.value } : b)),
+                        )
+                      }
+                      placeholder="0x..."
+                      className="input bg-white text-sm"
+                    />
+                    <input
+                      value={r.name}
+                      onChange={(e) =>
+                        setBatch(
+                          batch.map((b) => (b.id === r.id ? { ...b, name: e.target.value } : b)),
+                        )
+                      }
+                      placeholder="Name (private)"
+                      className="input bg-white text-sm"
+                    />
+                    <div className="relative">
+                      <input
+                        value={r.amount}
+                        onChange={(e) =>
+                          setBatch(
+                            batch.map((b) =>
+                              b.id === r.id
+                                ? { ...b, amount: e.target.value.replace(/[^0-9.]/g, "") }
+                                : b,
+                            ),
+                          )
+                        }
+                        placeholder="0.00"
+                        className="input bg-white text-sm pr-12 font-mono text-right"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-ink/55">
+                        {asset.symbol}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setBatch(batch.filter((b) => b.id !== r.id))}
+                      className="grid place-items-center text-ink/40 hover:text-pink"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setBatch([...batch, newRecipient()])}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-2xl border border-dashed border-ink/30 py-3 text-sm font-semibold text-ink/60 hover:border-ink/50 hover:text-ink transition-colors"
+                >
+                  <Plus className="h-4 w-4" /> Add recipient
+                </button>
+              </div>
+            )}
+
+            {/* Category + Tag */}
+            <div className="px-7 pt-10 pb-4 space-y-5">
+              <div>
+                <Label>What is this transaction for?</Label>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {CATS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setCat(c)}
+                      className={`text-sm px-3.5 py-1.5 rounded-full transition-all ${cat === c ? "bg-ink text-cream shadow-soft" : "bg-cream/60 text-ink/70 hover:bg-cream"}`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Field label="Invoice / project tag (private)">
+                <input value={tag} onChange={(e) => setTag(e.target.value)} className="input" />
+              </Field>
+            </div>
+
+            {/* Speed */}
+            <div className="px-7 pt-8 pb-8">
+              <Label>Network speed</Label>
+              <div className="mt-3 grid grid-cols-3 gap-2.5">
+                {SPEEDS.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setSpeed(s.id)}
+                    className={`rounded-2xl p-4 text-left transition-all ${speed === s.id ? "bg-mint/15 shadow-glow-mint" : "bg-cream/50 hover:bg-cream"}`}
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      {s.id === "instant" && <Zap className="h-3 w-3 text-pink" />}
+                      {s.label}
+                    </div>
+                    <div className="mt-1 text-[11px] text-ink/55 font-mono">
+                      {s.time} · {s.gwei} gwei
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar: Intent Preview / Tx summary */}
+        <div className="space-y-5">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden rounded-3xl bg-white p-7 shadow-float ring-1 ring-ink/10"
+          >
+            <div className="absolute inset-x-0 top-0 h-1 bg-aurora" />
+            <div className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-pink">
+              Transaction Preview
+            </div>
+            <div className="mt-1.5 text-lg font-semibold">{cat}</div>
+
+            <div className="mt-5 rounded-2xl bg-cream/60 p-5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-ink/55">You send</span>
+                <span className="text-xs text-ink/55">
+                  {mode === "batch" ? `${batch.length} recipients` : "1 recipient"}
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-3xl font-semibold tracking-tight font-mono">
+                  {totalAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                </span>
+                <span className="text-sm font-semibold">{asset.symbol}</span>
+              </div>
+              <div className="text-xs text-ink/55 font-mono">
+                ${totalUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </div>
+              <div className="mt-3 flex items-center justify-center">
+                <ArrowDown className="h-4 w-4 text-ink/40" />
+              </div>
+              <div className="mt-1 text-xs text-ink/55">Recipient receives</div>
+              <div className="font-mono text-sm font-semibold">
+                {totalAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })} {asset.symbol}
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2.5 text-sm">
+              <Row k="Network" v="Morph Hoodi" />
+              <Row k="Speed" v={SPEEDS.find((s) => s.id === speed)!.label} />
+              <Row
+                k={
+                  <span className="inline-flex items-center gap-1">
+                    <Fuel className="h-3 w-3" /> Gas
+                  </span>
+                }
+                v={`~$${gasUsd.toFixed(3)}`}
+                mono
+              />
+              <Row k="Tag" v={tag} />
+              <Row
+                k="Encryption"
+                v={
+                  <span className="inline-flex items-center gap-1 text-mint">
+                    <Shield className="h-3 w-3" /> AES-256
+                  </span>
+                }
+              />
+            </div>
+
+            <div className="mt-6 rounded-2xl bg-cream/70 p-4">
+              <div className="text-[10px] uppercase tracking-widest text-ink/55">Lifecycle</div>
+              <div className="mt-2 grid grid-cols-4 gap-2 text-[10px] uppercase tracking-widest">
+                {[
+                  ["Intent", lifecycleOn.Intent],
+                  ["Sign", lifecycleOn.Sign],
+                  ["Verify", lifecycleOn.Verify],
+                  ["Vault", lifecycleOn.Vault],
+                ].map(([s, on]) => (
+                  <div key={s as string} className="flex flex-col items-center gap-1">
+                    <div className={`h-1.5 w-full rounded-full ${on ? "bg-pink" : "bg-ink/10"}`} />
+                    <span className={on ? "text-ink" : "text-ink/40"}>{s as string}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 rounded-xl bg-white px-3 py-2 text-xs leading-5 text-ink/60">
+                {flowMessage}
+                {txHash && (
+                  <div className="mt-1 font-mono text-[11px] text-ink">{shortAddress(txHash)}</div>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={connected ? createIntentAndSend : prepareWallet}
+              disabled={sending}
+              className="mt-5 w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-ink text-cream py-4 text-sm font-semibold shadow-glow-mint hover:-translate-y-0.5 hover:shadow-glow-pink transition-all disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Lock className="h-4 w-4" />{" "}
+              {sending
+                ? "Working through intent lifecycle..."
+                : connected
+                  ? mode === "batch"
+                    ? `Create Intent & Sign Batch (${batch.length})`
+                    : "Create Intent & Sign"
+                  : "Connect Wallet to Sign"}
+            </button>
+            <div className="mt-3 text-center text-[11px] text-ink/50 inline-flex items-center justify-center gap-1 w-full">
+              <Info className="h-3 w-3" /> MetaMask will pop up to sign 1 transaction
+            </div>
+          </motion.div>
+
+          <div className="rounded-3xl bg-white p-6 shadow-float ring-1 ring-ink/10 text-sm">
+            <div className="font-semibold inline-flex items-center gap-1.5">
+              <Shield className="h-4 w-4 text-mint" /> How encryption works
+            </div>
+            <p className="mt-1 text-ink/60">
+              Your note, tag, and counterparty are encrypted with AES-256 on your device. Only your
+              wallet can decrypt the vault.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Asset picker modal */}
+      <AnimatePresence>
+        {assetPickerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 grid place-items-center bg-ink/40 backdrop-blur-sm p-4"
+            onClick={() => setAssetPickerOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 8 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, y: 8 }}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-3xl shadow-float overflow-hidden"
+            >
+              <div className="px-6 pt-5 pb-3 flex items-center justify-between">
+                <div className="text-sm font-semibold">Select asset</div>
+                <button
+                  onClick={() => setAssetPickerOpen(false)}
+                  className="text-ink/40 hover:text-ink"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="px-5 pb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-ink/40" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by name or symbol"
+                    className="input pl-9"
+                  />
+                </div>
+              </div>
+              <div className="max-h-[420px] overflow-y-auto">
+                {filteredAssets.map((a) => (
+                  <button
+                    key={a.symbol}
+                    onClick={() => {
+                      setAsset(a);
+                      setAssetPickerOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-cream/60 transition-colors text-left"
+                  >
+                    <AssetIcon symbol={a.symbol} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold flex items-center gap-2">
+                        {a.symbol}
+                        <span className="text-[10px] uppercase tracking-widest text-ink/40">
+                          {a.type}
+                        </span>
+                      </div>
+                      <div className="text-xs text-ink/55 truncate">{a.name}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-mono">
+                        {a.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </div>
+                      <div className="text-[11px] text-ink/55 font-mono">
+                        $
+                        {(a.balance * a.usd).toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                    {asset.symbol === a.symbol && <Check className="h-4 w-4 text-mint" />}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <style>{`
+        .input { width: 100%; padding: 0.95rem 1.1rem; border-radius: 0.85rem; border: 1px solid transparent; background: #FFFFFF; box-shadow: inset 0 0 0 1px color-mix(in oklab, #0B0B0F 8%, transparent); font-size: 0.9rem; outline: none; transition: box-shadow .15s; }
+        .input:focus { box-shadow: inset 0 0 0 1px oklch(0.82 0.26 145), 0 0 0 3px color-mix(in oklab, oklch(0.82 0.26 145) 22%, transparent); }
+        .shadow-float { box-shadow: 0 1px 2px rgba(11,11,15,0.03), 0 30px 60px -28px rgba(11,11,15,0.10); }
+      `}</style>
+    </>
+  );
+}
+
+function WalletPill({ src, active }: { src: string; active?: boolean }) {
+  return (
+    <span
+      className={`hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold ${active ? "bg-mint/20 text-ink" : "bg-cream/70 text-ink/55"}`}
+    >
+      {active && <span className="h-1 w-1 rounded-full bg-mint" />} {src}
+    </span>
+  );
+}
+
+function AssetIcon({ symbol }: { symbol: string }) {
+  return (
+    <span className="grid h-8 w-8 place-items-center rounded-full bg-ink text-cream text-[10px] font-bold tracking-tight">
+      {symbol.slice(0, 4)}
+    </span>
+  );
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-ink/55">
+      {children}
+    </div>
+  );
+}
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="mt-2.5">{children}</div>
+    </div>
+  );
+}
+function Row({ k, v, mono }: { k: React.ReactNode; v: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1.5">
+      <span className="text-ink/55">{k}</span>
+      <span className={`text-right ${mono ? "font-mono" : ""}`}>{v}</span>
+    </div>
+  );
+}

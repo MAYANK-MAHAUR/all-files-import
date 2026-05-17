@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "PayMemo Wallet Assist",
+  "version": "0.5.0",
+  "description": "Capture private payment context before wallet signatures and verify supported EVM transactions.",
+  "permissions": ["storage", "tabs", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "PayMemo",
+    "default_popup": "popup.html"
+  },
+  "options_page": "popup.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inpage.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

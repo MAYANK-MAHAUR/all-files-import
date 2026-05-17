@@ -1,9 +1,26 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Send, ScrollText, FileText, Layers, BarChart3, Settings, ShieldCheck, Bot } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  BarChart3,
+  Bot,
+  FileSearch,
+  FileText,
+  Layers,
+  LayoutDashboard,
+  RadioTower,
+  ScrollText,
+  Send,
+  Settings,
+  ShieldCheck,
+  WalletCards,
+} from "lucide-react";
 
-const items: { to: string; label: string; icon: any; exact?: boolean }[] = [
+const items: { to: string; label: string; icon: LucideIcon; exact?: boolean }[] = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/app/morph", label: "Morph Testnet", icon: RadioTower },
   { to: "/app/send", label: "Send Payment", icon: Send },
+  { to: "/app/assist", label: "Wallet Assist", icon: WalletCards },
+  { to: "/app/review", label: "Needs Review", icon: FileSearch },
   { to: "/app/ledger", label: "Ledger", icon: ScrollText },
   { to: "/app/invoices", label: "Invoices", icon: FileText },
   { to: "/app/batch", label: "Batch Payouts", icon: Layers },
@@ -17,7 +34,9 @@ export function AppSidebar() {
   return (
     <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-ink/35 bg-white/70 backdrop-blur p-4 sticky top-0 h-screen">
       <Link to="/" className="flex items-center gap-2 px-2 py-2">
-        <span className="grid h-8 w-8 place-items-center rounded-xl bg-aurora text-white font-bold">P</span>
+        <span className="grid h-8 w-8 place-items-center rounded-xl bg-aurora text-white font-bold">
+          P
+        </span>
         <span className="font-semibold tracking-tight">PayMemo</span>
       </Link>
       <nav className="mt-6 space-y-1">

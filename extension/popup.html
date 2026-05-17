@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <div class="brand-row">
+          <span class="logo">P</span>
+          <div>
+            <p class="eyebrow">PayMemo</p>
+            <h1>Wallet Assist</h1>
+          </div>
+        </div>
+        <p class="hero-copy">Capture the why before supported EVM wallet signatures continue.</p>
+      </header>
+
+      <section class="status-card">
+        <div>
+          <span class="label">Capture</span>
+          <strong id="enabledText">Active</strong>
+        </div>
+        <label class="switch">
+          <input id="enabled" type="checkbox" />
+          <span></span>
+        </label>
+      </section>
+
+      <section class="wallet-support">
+        <span class="label">Detected provider support</span>
+        <div>
+          <span>MetaMask</span>
+          <span>Rabby</span>
+          <span>Bitget</span>
+          <span>Trust</span>
+          <span>Phantom EVM</span>
+          <span>OKX</span>
+          <span>Coinbase</span>
+          <span>Binance</span>
+        </div>
+      </section>
+
+      <section class="stats">
+        <article>
+          <span id="total">0</span>
+          <p>Total</p>
+        </article>
+        <article>
+          <span id="pending">0</span>
+          <p>Pending</p>
+        </article>
+        <article>
+          <span id="confirmed">0</span>
+          <p>Confirmed</p>
+        </article>
+      </section>
+
+      <section class="settings">
+        <label>
+          PayMemo app URL
+          <input id="appUrl" />
+        </label>
+        <label>
+          Morph RPC
+          <input id="rpcUrl" />
+        </label>
+        <button id="saveSettings" class="secondary">Save settings</button>
+      </section>
+
+      <section class="settings chain-watch">
+        <div class="watch-head">
+          <div>
+            <span class="label">Morph chain watch</span>
+            <strong id="chainWatchText">Paused</strong>
+          </div>
+          <label class="switch">
+            <input id="chainWatchEnabled" type="checkbox" />
+            <span></span>
+          </label>
+        </div>
+        <label>
+          Watched Morph wallet address
+          <textarea
+            id="watchedAddresses"
+            placeholder="0x...&#10;Add one address per line for this demo"
+          ></textarea>
+        </label>
+        <label class="checkline">
+          <input id="autoOpenChainWatchPrompt" type="checkbox" />
+          Auto-open memo prompt after Morph tx detection
+        </label>
+        <div class="toolbar compact">
+          <button id="scanMorphNow" class="secondary" type="button">Scan Morph now</button>
+          <button id="openReview" class="secondary" type="button">Open review</button>
+        </div>
+        <p id="scanStatus" class="mini-status">Only Morph Hoodi testnet is watched.</p>
+      </section>
+
+      <div class="toolbar">
+        <button id="openApp" class="primary">Open dApp</button>
+        <button id="syncAll" class="secondary">Sync all</button>
+      </div>
+
+      <section id="records" class="records"></section>
+
+      <button id="clear" class="danger">Clear local records</button>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

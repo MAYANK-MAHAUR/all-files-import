@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Topbar } from "@/components/app/Topbar";
 import { StatusBadge } from "@/components/app/StatusBadge";
 import { EditRecordModal, type EditableRecord } from "@/components/app/EditRecordModal";
@@ -68,8 +68,8 @@ const statuses = [
 ];
 
 // -- Date range presets ----------------------------------------------------
-// Each preset is a function from `now` → `{ from, to }` epoch range. `null`
-// means "no bound on that side". The financial-year presets use April→March
+// Each preset is a function from `now` ? `{ from, to }` epoch range. `null`
+// means "no bound on that side". The financial-year presets use April?March
 // (Indian / UK / SG / Japan FY) since that's the most common globally; if
 // you want a different FY (Jul-Jun for AU/NZ, Oct-Sep for US federal) just
 // add another entry below.
@@ -177,14 +177,28 @@ const DATE_RANGE_OPTIONS: { value: DateRangeKey; label: string }[] = [
   { value: "last-year", label: "Last calendar year" },
   { value: "fy", label: "Financial year (Apr-Mar)" },
   { value: "fy-prev", label: "Previous FY (Apr-Mar)" },
-  { value: "custom", label: "Custom range…" },
+  { value: "custom", label: "Custom range�" },
 ];
 
 function formatRangeLabel(range: Range) {
   if (range.from === null && range.to === null) return "all time";
   const fmt = (ms: number | null) =>
-    ms ? new Date(ms).toLocaleDateString() : "…";
-  return `${fmt(range.from)} → ${fmt(range.to)}`;
+    ms ? new Date(ms).toLocaleDateString() : "�";
+  return `${fmt(range.from)} ? ${fmt(range.to)}`;
+}
+
+function formatLedgerDateTime(value?: string) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return "—";
+  // e.g. "May 22, 2026, 5:49 PM" — short month + 12h clock with minute.
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function downloadCsv(rows: LedgerRow[]) {
@@ -246,7 +260,7 @@ function Ledger() {
     if (!key) {
       const lockedRows: LedgerRow[] = records.map((record) => ({
         id: record.id,
-        date: new Date(record.publicRecord.createdAt ?? record.updatedAt).toLocaleDateString(),
+        date: formatLedgerDateTime(record.publicRecord.createdAt ?? record.updatedAt),
         dateMs: new Date(record.publicRecord.createdAt ?? record.updatedAt).getTime(),
         hash: record.publicRecord.txHash ?? "pending",
         amount: record.publicRecord.amount,
@@ -259,7 +273,7 @@ function Ledger() {
         source: "vault",
         raw: record,
       }));
-      setVaultRows(lockedRows);
+      setVaultRows(lockedRows.sort((a, b) => b.dateMs - a.dateMs));
       return;
     }
 
@@ -271,7 +285,7 @@ function Ledger() {
         );
         return {
           id: record.id,
-          date: new Date(record.publicRecord.createdAt ?? record.updatedAt).toLocaleDateString(),
+          date: formatLedgerDateTime(record.publicRecord.createdAt ?? record.updatedAt),
         dateMs: new Date(record.publicRecord.createdAt ?? record.updatedAt).getTime(),
           hash: record.publicRecord.txHash ?? "pending",
           amount: record.publicRecord.amount,
@@ -287,7 +301,7 @@ function Ledger() {
       }),
     );
 
-    setVaultRows(decryptedRows);
+    setVaultRows(decryptedRows.sort((a, b) => b.dateMs - a.dateMs));
   }
 
   useEffect(() => {
@@ -433,7 +447,7 @@ function Ledger() {
                 className="bg-transparent text-sm outline-none"
                 aria-label="From"
               />
-              <span className="text-ink/72">→</span>
+              <span className="text-ink/72">?</span>
               <input
                 type="date"
                 value={customTo}
@@ -458,7 +472,7 @@ function Ledger() {
           <strong className="text-ink">{vaultRows.length}</strong> records{" "}
           {dateRange !== "all" && (
             <span>
-              · range: <strong className="text-ink">{formatRangeLabel(activeRange)}</strong>
+              � range: <strong className="text-ink">{formatRangeLabel(activeRange)}</strong>
             </span>
           )}
         </div>

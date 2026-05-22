@@ -196,6 +196,10 @@ function ReviewQueue() {
       const order = { main: 0, partner: 1, unattributed: 2 };
       return order[a.tone] - order[b.tone];
     });
+    // Newest record on top inside each wallet bucket.
+    ordered.forEach((bucket) => {
+      bucket.records.sort((a, b) => b.sortMs - a.sortMs);
+    });
     return ordered;
   }, [visibleRecords, ownerWallet, partnerWallets]);
 
@@ -528,8 +532,15 @@ function ReviewQueue() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-papaya/30 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-ink">
-                        {bucket.records.length} pending
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
+                          activeTab === "completed"
+                            ? "bg-mint/30 text-ink"
+                            : "bg-papaya/30 text-ink"
+                        }`}
+                      >
+                        {bucket.records.length}{" "}
+                        {activeTab === "completed" ? "completed" : "pending"}
                       </span>
                       <ChevronDown
                         className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`}
@@ -556,8 +567,14 @@ function ReviewQueue() {
                               {item.hash}
                             </div>
                           </div>
-                          <span className="rounded-full border border-papaya/40 bg-papaya/15 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ink">
-                            Needs review
+                          <span
+                            className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
+                              activeTab === "completed"
+                                ? "border border-mint/60 bg-mint/20 text-ink"
+                                : "border border-papaya/40 bg-papaya/15 text-ink"
+                            }`}
+                          >
+                            {activeTab === "completed" ? "Completed" : "Needs review"}
                           </span>
                         </div>
                       </button>
@@ -703,6 +720,7 @@ const categories = [
 
 function toReviewItem(record: SyncedRecord, index: number): ReviewItem {
   const id = record.id ?? `extension-${index}`;
+  const dateSource = record.confirmedAt ?? record.updatedAt ?? record.createdAt;
   return {
     id,
     source: record.provider ?? record.source ?? "Wallet Assist",
@@ -714,10 +732,17 @@ function toReviewItem(record: SyncedRecord, index: number): ReviewItem {
     note: record.note ?? "",
     project: record.project ?? "",
     status: record.status,
-    localDateTime: formatLocalDateTime(record.confirmedAt ?? record.updatedAt ?? record.createdAt),
+    localDateTime: formatLocalDateTime(dateSource),
+    sortMs: parseTimestamp(dateSource),
     raw: record,
     vault: undefined,
   };
+}
+
+function parseTimestamp(value?: string): number {
+  if (!value) return 0;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : 0;
 }
 
 /**
@@ -768,6 +793,9 @@ type ReviewItem = {
   project: string;
   status: string;
   localDateTime: string;
+  /** Epoch ms of the latest event on the record. Drives latest-first
+   *  ordering inside each wallet bucket on the Review page. */
+  sortMs: number;
   raw: SyncedRecord;
   /** If this item came from the Completed tab, the underlying vault row
    *  so we can re-encrypt + PATCH on save. */

@@ -1,0 +1,13 @@
+# Files Vercel should never read during build. The worker is deployed
+# separately to Railway/Fly.io and is not part of the Vercel build graph.
+worker/
+extension/
+contracts/
+agent-tools/
+database/
+dev-server.err.log
+dev-server.log
+PAYMEMO_WORK_SUMMARY.md
+.tanstack/
+.wrangler/
+.lovable/

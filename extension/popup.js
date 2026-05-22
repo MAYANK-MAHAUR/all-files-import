@@ -220,6 +220,13 @@ function configureLivePopupScan() {
   // The Vercel cron + Railway worker do the real-time work; this is just
   // a "stats fresh" tick.
   liveScanTimer = setInterval(async () => {
+    // Pause completely while the user is typing into any field. Resume on
+    // the next tick once they tab/click away.
+    const focused = document.activeElement;
+    const editing =
+      focused && ["INPUT", "TEXTAREA", "SELECT"].includes(focused.tagName);
+    if (editing) return;
+
     const response = await sendMessage({ type: "PAYMEMO_SCAN_MORPH_NOW" });
     if (response.ok && response.result?.found) {
       scanStatus.textContent = `Detected ${response.result.found} new Morph tx${response.result.found === 1 ? "" : "s"}.`;

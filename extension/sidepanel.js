@@ -288,19 +288,35 @@ async function load() {
   render();
 }
 
+function isUserEditing() {
+  const focused = document.activeElement;
+  if (!focused) return false;
+  const tag = focused.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
 chrome.runtime.onMessage.addListener((message) => {
   if (
     message?.type === "PAYMEMO_RECORDS_UPDATED" ||
     message?.type === "PAYMEMO_CHAIN_WATCH_FOUND"
   ) {
+    // Never tear the form out from under the user. If this side panel was
+    // opened as the windowed "transaction detected" prompt (popupMode), the
+    // user is here to fill one memo — never refresh. Same when they're
+    // typing into any input.
+    if (popupMode) return;
+    if (isUserEditing()) return;
     void load();
   }
 });
 
 // Slow heartbeat so the user can type into the wallet form without it
 // being clobbered every few seconds. Real-time scanning happens server-side
-// (Vercel cron + Railway worker); this is just a fallback poll.
+// (Vercel cron + Railway worker); this is just a fallback poll, and we
+// freeze it entirely while the user has the form open / focused.
 setInterval(() => {
+  if (popupMode) return;
+  if (isUserEditing()) return;
   if (settings.chainWatchEnabled) void sendMessage({ type: "PAYMEMO_SCAN_MORPH_NOW" }).then(load);
 }, 10000);
 

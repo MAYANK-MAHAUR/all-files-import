@@ -109,6 +109,17 @@ function card(record) {
 
 function render() {
   const root = document.querySelector("#app");
+
+  // PRESERVE user input across re-renders. The 3.5s scan tick triggers a
+  // full innerHTML rebuild — without this, anything the user is typing
+  // into #watchAddress or #watchLabel gets wiped on every poll, making
+  // it impossible to enter a wallet address slowly.
+  const preservedInputs = new Map();
+  root.querySelectorAll("input, textarea").forEach((el) => {
+    if (el.id) preservedInputs.set(el.id, { value: el.value, focused: document.activeElement === el });
+  });
+  const previouslyFocusedId = document.activeElement?.id || "";
+
   const latest = records[0];
   const watchedAddresses = normalizeAddresses(settings.watchedAddresses);
   const watchedLabels = settings.watchedWalletLabels || {};
@@ -245,6 +256,29 @@ function render() {
       await load();
     });
   });
+
+  // Restore any input values + focus that existed before this re-render.
+  // This is what keeps the wallet-address field stable while the 3.5s
+  // chain-watch tick rebuilds the panel.
+  preservedInputs.forEach((snapshot, id) => {
+    const el = root.querySelector(`#${id}`);
+    if (!el) return;
+    if (snapshot.value !== undefined) el.value = snapshot.value;
+  });
+  if (previouslyFocusedId) {
+    const focusTarget = root.querySelector(`#${previouslyFocusedId}`);
+    if (focusTarget && typeof focusTarget.focus === "function") {
+      const cursorPos = preservedInputs.get(previouslyFocusedId)?.value?.length ?? 0;
+      focusTarget.focus();
+      if (typeof focusTarget.setSelectionRange === "function") {
+        try {
+          focusTarget.setSelectionRange(cursorPos, cursorPos);
+        } catch {
+          // setSelectionRange isn't supported on every input type; ignore.
+        }
+      }
+    }
+  }
 }
 
 async function load() {
@@ -263,8 +297,11 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
+// Slow heartbeat so the user can type into the wallet form without it
+// being clobbered every few seconds. Real-time scanning happens server-side
+// (Vercel cron + Railway worker); this is just a fallback poll.
 setInterval(() => {
   if (settings.chainWatchEnabled) void sendMessage({ type: "PAYMEMO_SCAN_MORPH_NOW" }).then(load);
-}, 3500);
+}, 10000);
 
 void load();

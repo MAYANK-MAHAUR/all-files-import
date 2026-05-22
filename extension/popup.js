@@ -145,7 +145,7 @@ function render(records) {
       button.textContent = "Syncing";
       const response = await sendMessage({ type: "PAYMEMO_SYNC_RECORD", id: button.dataset.sync, removeLocal: true });
       button.textContent = response.ok ? "Moved" : "Failed";
-      await load();
+      await load({ live: true });
     });
   });
 
@@ -169,25 +169,40 @@ function render(records) {
   });
 }
 
-function applySettings(settings) {
+function applySettings(settings, options = {}) {
   currentSettings = settings;
   enabledInput.checked = Boolean(settings.enabled);
   enabledText.textContent = settings.enabled ? "Active" : "Paused";
-  appUrlInput.value = settings.appUrl || "";
-  rpcUrlInput.value = settings.rpcUrl || "";
   chainWatchInput.checked = Boolean(settings.chainWatchEnabled);
   chainWatchText.textContent = settings.chainWatchEnabled ? "Watching Morph" : "Paused";
-  watchedAddressesInput.value = formatWatchedWallets(settings);
   autoOpenChainWatchPromptInput.checked = settings.autoOpenChainWatchPrompt !== false;
   if (popupForPartnerWalletsInput) {
     popupForPartnerWalletsInput.checked = Boolean(settings.popupForPartnerWallets);
   }
+
+  // Don't fight the user. We only overwrite TEXT inputs when:
+  //   - this is an explicit reload (not a background poll), AND
+  //   - the user isn't currently typing into one of them.
+  // The live-scan interval passes { live: true } so the textarea never
+  // gets wiped while the user is half-way through pasting a wallet.
+  const live = Boolean(options.live);
+  const focused = document.activeElement;
+  const editingText =
+    focused === watchedAddressesInput ||
+    focused === appUrlInput ||
+    focused === rpcUrlInput;
+
+  if (!live && !editingText) {
+    appUrlInput.value = settings.appUrl || "";
+    rpcUrlInput.value = settings.rpcUrl || "";
+    watchedAddressesInput.value = formatWatchedWallets(settings);
+  }
   configureLivePopupScan();
 }
 
-async function load() {
+async function load(options = {}) {
   const response = await sendMessage({ type: "PAYMEMO_GET_STATE" });
-  applySettings(response.settings || {});
+  applySettings(response.settings || {}, options);
   renderWatchHealth(response.watchState || {});
   render(response.records || []);
 }
@@ -200,13 +215,18 @@ function configureLivePopupScan() {
 
   if (!currentSettings.chainWatchEnabled) return;
 
+  // Slower interval (was 3.5s — too aggressive, made the popup feel like it
+  // was refreshing constantly and clobbered the textarea while typing).
+  // The Vercel cron + Railway worker do the real-time work; this is just
+  // a "stats fresh" tick.
   liveScanTimer = setInterval(async () => {
     const response = await sendMessage({ type: "PAYMEMO_SCAN_MORPH_NOW" });
     if (response.ok && response.result?.found) {
       scanStatus.textContent = `Detected ${response.result.found} new Morph tx${response.result.found === 1 ? "" : "s"}.`;
-      await load();
     }
-  }, 3500);
+    // Live mode = update stats + records list, but DON'T touch text inputs.
+    await load({ live: true });
+  }, 10000);
 }
 
 enabledInput.addEventListener("change", async () => {

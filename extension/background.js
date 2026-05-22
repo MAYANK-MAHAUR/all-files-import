@@ -49,13 +49,41 @@ async function getOrCreateInstallToken() {
   return token;
 }
 
+// Old appUrl values that pre-date the public deploy. If we see any of these
+// in chrome.storage, we silently upgrade them to the current production URL
+// so existing installs stop trying to POST to a localhost server that no
+// longer runs anywhere.
+const LEGACY_APP_URLS = new Set([
+  "http://127.0.0.1:5174",
+  "http://127.0.0.1:5174/",
+  "http://localhost:5174",
+  "http://localhost:5174/",
+]);
+
+function migrateLegacyAppUrl(stored) {
+  if (!stored || typeof stored !== "object") return stored;
+  const url = String(stored.appUrl || "").trim();
+  if (LEGACY_APP_URLS.has(url)) {
+    stored.appUrl = DEFAULT_SETTINGS.appUrl;
+  }
+  return stored;
+}
+
 async function readSettings() {
   const result = await chrome.storage.local.get(SETTINGS_KEY);
-  return { ...DEFAULT_SETTINGS, ...(result[SETTINGS_KEY] || {}) };
+  const stored = result[SETTINGS_KEY] || {};
+  const before = stored.appUrl;
+  const migrated = migrateLegacyAppUrl({ ...stored });
+  if (before !== migrated.appUrl) {
+    // Persist the migration so the next read is a no-op AND the popup /
+    // settings UI shows the corrected URL.
+    await chrome.storage.local.set({ [SETTINGS_KEY]: migrated });
+  }
+  return { ...DEFAULT_SETTINGS, ...migrated };
 }
 
 async function saveSettings(settings) {
-  const next = { ...DEFAULT_SETTINGS, ...settings };
+  const next = migrateLegacyAppUrl({ ...DEFAULT_SETTINGS, ...settings });
   await chrome.storage.local.set({ [SETTINGS_KEY]: next });
   await configureMorphWatch(next);
   return next;

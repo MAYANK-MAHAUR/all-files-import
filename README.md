@@ -37,137 +37,64 @@ Detection happens server-side in real time so transactions you receive while off
 
 ## Architecture
 
+Think of PayMemo as five teammates passing notes to each other. Each one has a clear job, and together they make sure your private memos stay private while your transactions stay on-chain.
+
+### 1. You and your wallet
+
+You open PayMemo in any modern browser (Chrome, Brave, Edge, Arc) — either the website itself, or our small browser extension. You bring your own crypto wallet (MetaMask, Rabby, Phantom, Trust, Bitget, Coinbase, OKX, Binance, etc.). PayMemo doesn't store your keys, doesn't make you sign up with email, and doesn't use WalletConnect. It just finds whatever wallet you've already installed and talks to it directly.
+
+### 2. The app running inside your browser
+
+This is the most important part. Everything sensitive happens **here**, on your own computer, before anything is sent out:
+
+- When you type a memo, category, or counterparty name, the app scrambles it into unreadable text using strong encryption (AES-GCM).
+- The "password" used for that scrambling is derived from a one-time signature your wallet makes — so only you can ever unlock it again. Even PayMemo's own developers can't read it.
+- The app then talks to the Morph blockchain (to send/read transactions) and to PayMemo's server (to save the encrypted note).
+
+The browser extension is a small companion that does the same thing for wallets you don't use through the website — it watches for transactions and pops up a little form asking "what was this for?"
+
+### 3. The server (hosted on Vercel)
+
+A thin middle layer that:
+
+- Receives the already-encrypted memos and stores them.
+- Checks that requests really came from you (by verifying your wallet's signature).
+- Powers public invoice pages (so someone can pay you without an account).
+- Handles batch payouts, agent payment intents, and the watched-wallets list.
+
+The server **never sees your real notes** — only the scrambled version. If someone ever broke into the server, they'd find a pile of gibberish.
+
+### 4. The database (Supabase Postgres)
+
+This is where the encrypted data actually lives long-term. It holds your ledger entries, invoices, batch payouts, the list of wallets you're watching, and agent records. Strict access rules (Row-Level Security) make sure no one but PayMemo's own API can touch the data, and even then, the contents are encrypted.
+
+### 5. The worker + the Morph blockchain
+
+A tiny background program (running on Railway or Fly.io) does one job: every 2 seconds it asks Morph "any new blocks?" When it sees a transaction from or to a wallet you're watching, it tells the server, which tells your extension, which pops up and asks you to add a memo. This is how PayMemo catches payments you made outside the website — almost in real time.
+
+Morph is the Layer-2 blockchain PayMemo runs on (chain ID 2910, testnet). It supports normal ETH and tokens like L2USDC and WETH. We also deployed a small smart contract called **BatchPayout** that lets you pay many people in a single transaction — useful for payroll or splitting bills.
+
+### How the pieces talk
+
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ USER LAYER                                                                   │
-│                                                                              │
-│   Wallet apps (MetaMask · Rabby · Bitget · Trust · Phantom · OKX ·           │
-│   Coinbase · Binance) — discovered via EIP-6963, no walletconnect.           │
-│                                                                              │
-│   Browser (Chrome / Brave / Edge / Arc) hosts:                               │
-│     • paymemo.vercel.app dApp tab                                            │
-│     • PayMemo MV3 extension (popup + sidepanel + content script + bg SW)     │
-└──────────────────────────────────────────────────────────────────────────────┘
-                │                                          │
-                │ EIP-1193 signTransaction                 │ tx events from
-                │ personal_sign (auth)                     │ window.ethereum
-                ▼                                          ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ CLIENT LAYER  (runs in user's browser, zero-trust w.r.t. server)             │
-│                                                                              │
-│   TanStack Start  ─►  React 19 SSR + file-based routes (src/routes/*.tsx)    │
-│   viem            ─►  Morph chain client, ETH + ERC-20 reads/writes          │
-│   Web Crypto API  ─►  AES-GCM encrypt memo BEFORE leaving the browser        │
-│                       Key = SHA-256( wallet personal_sign("PayMemo v1") )    │
-│                                                                              │
-│   Extension MV3:                                                             │
-│     popup.js / sidepanel.js  ─►  capture form, watched wallet manager        │
-│     background.js (SW)       ─►  polls /api/extension-intent for new tx      │
-│     content.js + inpage.js   ─►  in-page memo overlay after signing          │
-└──────────────────────────────────────────────────────────────────────────────┘
-       │                              │                              │
-       │ HTTPS                        │ HTTPS (CORS: chrome-ext://)  │ JSON-RPC
-       │ x-paymemo-wallet             │ x-paymemo-install-token      │
-       │ x-paymemo-signature          │                              │
-       ▼                              ▼                              │
-┌──────────────────────────────────────────────────────────────────┐ │
-│ EDGE LAYER — Vercel  (Build Output API v3, Node 22 serverless)   │ │
-│                                                                  │ │
-│   _render.func/index.mjs   ─►  esbuild-bundled SSR + API entry   │ │
-│                                                                  │ │
-│   API routes (src/routes/api.*.ts):                              │ │
-│     /api/vault-records         encrypted memo CRUD (dApp)        │ │
-│     /api/extension-intent      extension capture sync (CORS)     │ │
-│     /api/extension-pair        install-token ↔ wallet pairing    │ │
-│     /api/watched-wallets       per-user scan list                │ │
-│     /api/cron/scan-morph       sweep Morph for watched wallets   │ │
-│     /api/agent-memory          AI-agent payment intents          │ │
-│     /api/agent-payment-intent  encrypted agent intents (domain)  │ │
-│     /api/batch-payouts         encrypted batch payout records    │ │
-│     /api/invoices              encrypted invoice records         │ │
-│     /api/public-invoice        public read-only /pay/$id page    │ │
-│     /api/database-reset        wallet-auth wipe                  │ │
-│     /api/health                DB + RPC + cron diagnostics       │ │
-│                                                                  │ │
-│   Auth helpers (src/lib/server/wallet-auth.ts):                  │ │
-│     verify personal_sign  ·  validate install-token  ·  Zod      │ │
-│                                                                  │ │
-│   Vercel cron (vercel.json)  ─►  daily GET /api/cron/scan-morph  │ │
-│                                  (Hobby-plan safety net)         │ │
-└──────────────────────────────────────────────────────────────────┘ │
-       │                                    ▲                        │
-       │ Supabase REST                      │ Authorization:         │
-       │ service_role JWT                   │ Bearer $CRON_SECRET    │
-       ▼                                    │                        │
-┌──────────────────────────────────────┐    │                        │
-│ DATA LAYER — Supabase Postgres + RLS │    │                        │
-│                                      │    │                        │
-│   vault_records         (encrypted)  │    │                        │
-│   extension_records     (encrypted)  │    │                        │
-│   watched_wallets                    │    │                        │
-│   extension_pairings                 │    │                        │
-│   agent_memory_records  (encrypted)  │    │                        │
-│   paymemo_domain_records             │    │                        │
-│   users · counterparties · invoices  │    │                        │
-│   payment_intents · transactions     │    │                        │
-│   batch_payouts · batch_payout_items │    │                        │
-│   agent_payment_intents              │    │                        │
-│   linked_transactions                │    │                        │
-│                                      │    │                        │
-│   Every table: RLS enabled,          │    │                        │
-│   service_role policy only.          │    │                        │
-│   Local-dev fallback:                │    │                        │
-│   database/paymemo-dev-db.json       │    │                        │
-└──────────────────────────────────────┘    │                        │
-                                            │                        │
-┌──────────────────────────────────────┐    │                        │
-│ REAL-TIME LAYER — Railway worker     │────┘                        │
-│                                      │                             │
-│   worker/index.js (Node 20+)         │                             │
-│     loop:  eth_blockNumber every 2s  │                             │
-│     on new block ─► POST /api/cron/scan-morph                      │
-│                       with Bearer $CRON_SECRET                     │
-│   Fly.io / Render free tiers also supported.                       │
-└──────────────────────────────────────┘                             │
-       │                                                             │
-       │ JSON-RPC eth_blockNumber · eth_getLogs · eth_getBalance     │
-       ▼                                                             ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ CHAIN LAYER — Morph Hoodi L2                                                 │
-│                                                                              │
-│   Chain ID 2910                                                              │
-│   RPC       https://rpc-hoodi.morph.network                                  │
-│   Explorer  https://explorer-hoodi.morph.network                             │
-│                                                                              │
-│   Native ETH  ·  L2USDC (0x1178…a227)  ·  WETH (0x5300…0011)                 │
-│                                                                              │
-│   Deployed contract:                                                         │
-│     BatchPayout.sol  ─►  ETH + ERC-20 multi-recipient payout in one tx       │
-└──────────────────────────────────────────────────────────────────────────────┘
-
-Data flow at a glance:
-
-  Mode 1 — dApp send
-    User → React form → AES-GCM encrypt(memo) → viem.signTransaction →
-    Morph tx submitted → POST /api/vault-records (ciphertext + tx hash) →
-    Supabase vault_records → Ledger render on next fetch.
-
-  Mode 2 — Extension capture (real-time)
-    User signs tx in any wallet → Morph mines block N →
-    Railway worker sees block N (2s poll) → POST /api/cron/scan-morph →
-    morph-scanner.ts matches tx.from/to against watched_wallets →
-    insert pending extension_records row →
-    Extension background SW polls /api/extension-intent → popup opens →
-    user fills memo → AES-GCM encrypt → POST /api/extension-intent →
-    row updated to "completed" → appears in /app/review.
-
-  Agent payment intent
-    Agent script → POST /api/agent-memory (public, rate-limited) →
-    encrypted reason stored in agent_memory_records →
-    owner reviews + exports at /app/agents.
+You + Wallet
+     │
+     ▼
+Browser app  ──(encrypts memo here)──►  Vercel server  ──►  Supabase database
+     │                                         ▲
+     │ (signs & sends tx)                      │
+     ▼                                         │
+  Morph chain  ◄── Worker checks every 2s ─────┘
 ```
 
-See `public/architecture.html` for the full visual diagram — open it in any browser.
+### Two main ways to use PayMemo
+
+- **Send with a memo (from the website):** You fill out the form, your browser encrypts the memo, your wallet signs the transaction, the tx goes to Morph, and the encrypted memo + transaction hash get saved. Open your ledger and there it is — readable only by you.
+- **Capture wallets you use elsewhere (with the extension):** You make a payment in any wallet app. The worker spots it on-chain within seconds. The extension pops up, you type what the payment was for, it gets encrypted, and it lands in your ledger alongside everything else.
+
+There's also a third path for AI agents and automated scripts: they can post a "payment intent" (a reason for a future payment) through a public, rate-limited endpoint. The reason is encrypted, and you review and approve everything from a dashboard.
+
+See `public/architecture.html` for a full visual diagram if you want to see every line connecting every piece.
 
 ### Trust model
 

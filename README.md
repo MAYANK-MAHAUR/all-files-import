@@ -37,64 +37,150 @@ Detection happens server-side in real time so transactions you receive while off
 
 ## Architecture
 
-Think of PayMemo as five teammates passing notes to each other. Each one has a clear job, and together they make sure your private memos stay private while your transactions stay on-chain.
-
-### 1. You and your wallet
-
-You open PayMemo in any modern browser (Chrome, Brave, Edge, Arc) — either the website itself, or our small browser extension. You bring your own crypto wallet (MetaMask, Rabby, Phantom, Trust, Bitget, Coinbase, OKX, Binance, etc.). PayMemo doesn't store your keys, doesn't make you sign up with email, and doesn't use WalletConnect. It just finds whatever wallet you've already installed and talks to it directly.
-
-### 2. The app running inside your browser
-
-This is the most important part. Everything sensitive happens **here**, on your own computer, before anything is sent out:
-
-- When you type a memo, category, or counterparty name, the app scrambles it into unreadable text using strong encryption (AES-GCM).
-- The "password" used for that scrambling is derived from a one-time signature your wallet makes — so only you can ever unlock it again. Even PayMemo's own developers can't read it.
-- The app then talks to the Morph blockchain (to send/read transactions) and to PayMemo's server (to save the encrypted note).
-
-The browser extension is a small companion that does the same thing for wallets you don't use through the website — it watches for transactions and pops up a little form asking "what was this for?"
-
-### 3. The server (hosted on Vercel)
-
-A thin middle layer that:
-
-- Receives the already-encrypted memos and stores them.
-- Checks that requests really came from you (by verifying your wallet's signature).
-- Powers public invoice pages (so someone can pay you without an account).
-- Handles batch payouts, agent payment intents, and the watched-wallets list.
-
-The server **never sees your real notes** — only the scrambled version. If someone ever broke into the server, they'd find a pile of gibberish.
-
-### 4. The database (Supabase Postgres)
-
-This is where the encrypted data actually lives long-term. It holds your ledger entries, invoices, batch payouts, the list of wallets you're watching, and agent records. Strict access rules (Row-Level Security) make sure no one but PayMemo's own API can touch the data, and even then, the contents are encrypted.
-
-### 5. The worker + the Morph blockchain
-
-A tiny background program (running on Railway or Fly.io) does one job: every 2 seconds it asks Morph "any new blocks?" When it sees a transaction from or to a wallet you're watching, it tells the server, which tells your extension, which pops up and asks you to add a memo. This is how PayMemo catches payments you made outside the website — almost in real time.
-
-Morph is the Layer-2 blockchain PayMemo runs on (chain ID 2910, testnet). It supports normal ETH and tokens like L2USDC and WETH. We also deployed a small smart contract called **BatchPayout** that lets you pay many people in a single transaction — useful for payroll or splitting bills.
-
-### How the pieces talk
-
 ```
-You + Wallet
-     │
-     ▼
-Browser app  ──(encrypts memo here)──►  Vercel server  ──►  Supabase database
-     │                                         ▲
-     │ (signs & sends tx)                      │
-     ▼                                         │
-  Morph chain  ◄── Worker checks every 2s ─────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ LAYER 1 — YOU AND YOUR WALLET                                                │
+│                                                                              │
+│   Any crypto wallet you already have:                                        │
+│     MetaMask · Rabby · Bitget · Trust · Phantom · OKX · Coinbase · Binance   │
+│   PayMemo auto-detects whatever's installed — no QR codes, no WalletConnect. │
+│                                                                              │
+│   You use it through your browser (Chrome / Brave / Edge / Arc):             │
+│     • The PayMemo website (paymemo.vercel.app)                               │
+│     • OR the PayMemo browser extension (popup + side panel)                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+                │                                          │
+                │ Wallet signs your transaction            │ Wallet tells the
+                │ + signs a one-time login message         │ page about new tx
+                ▼                                          ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ LAYER 2 — THE APP INSIDE YOUR BROWSER  (this is where privacy happens)       │
+│                                                                              │
+│   The website (React app):                                                   │
+│     • Shows pages, forms, ledger, invoices, dashboards                       │
+│     • Talks to the Morph blockchain to send/read transactions                │
+│     • LOCKS your private notes (memo, category, counterparty, project)       │
+│       with strong encryption BEFORE anything leaves your computer            │
+│     • The lock-key comes from your wallet's signature — only you can unlock  │
+│                                                                              │
+│   The extension (small companion app):                                       │
+│     • Popup / side panel  →  the "what was this for?" form                   │
+│     • Background watcher  →  asks the server every few seconds: any new tx?  │
+│     • Page overlay        →  shows a memo box right after you sign in any   │
+│                              wallet on any website                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+       │                              │                              │
+       │ Sends encrypted              │ Same, but coming from the    │ Reads/writes
+       │ data + proof it's            │ extension (uses a one-time   │ on the
+       │ really you                   │ install token to identify it)│ blockchain
+       ▼                              ▼                              │
+┌──────────────────────────────────────────────────────────────────┐ │
+│ LAYER 3 — THE SERVER  (hosted on Vercel, never sees your notes)  │ │
+│                                                                  │ │
+│   One small server program handles every request.                │ │
+│                                                                  │ │
+│   What it can do (each item = one endpoint):                     │ │
+│     Save/load encrypted memos                                    │ │
+│     Sync transactions captured by the extension                  │ │
+│     Pair an extension install with a wallet                      │ │
+│     Manage the list of wallets you're watching                   │ │
+│     Sweep the chain on demand for those watched wallets          │ │
+│     Receive payment intents from AI agents                       │ │
+│     Save encrypted batch payouts (paying many people at once)    │ │
+│     Save encrypted invoices                                      │ │
+│     Show a public "pay me" page from an invoice link             │ │
+│     Wipe all your data if you ask (after wallet check)           │ │
+│     Health check (database + chain + worker status)              │ │
+│                                                                  │ │
+│   Security checks before doing anything:                         │ │
+│     • Verify the wallet signature really matches the wallet      │ │
+│     • OR verify the extension's install token is valid           │ │
+│     • Validate every piece of incoming data against a schema     │ │
+│                                                                  │ │
+│   Safety-net cron:                                               │ │
+│     Once a day Vercel pings the chain-sweep endpoint as a backup │ │
+│     in case the live worker is down.                             │ │
+└──────────────────────────────────────────────────────────────────┘ │
+       │                                    ▲                        │
+       │ Stores / reads                     │ Worker proves it's     │
+       │ encrypted rows                     │ allowed by sending     │
+       │                                    │ a secret token         │
+       ▼                                    │                        │
+┌──────────────────────────────────────┐    │                        │
+│ LAYER 4 — THE DATABASE  (Supabase)   │    │                        │
+│                                      │    │                        │
+│   What's stored (all sensitive       │    │                        │
+│   fields are pre-encrypted by you):  │    │                        │
+│                                      │    │                        │
+│   Encrypted memos from the website   │    │                        │
+│   Encrypted memos from the extension │    │                        │
+│   Wallets you're watching            │    │                        │
+│   Extension install ↔ wallet links   │    │                        │
+│   AI-agent payment notes (encrypted) │    │                        │
+│   Domain records for agent intents   │    │                        │
+│   Users · contacts · invoices        │    │                        │
+│   Pending payments · transactions    │    │                        │
+│   Batch payouts + their line items   │    │                        │
+│   Encrypted agent payment intents    │    │                        │
+│   Links between memos and on-chain tx│    │                        │
+│                                      │    │                        │
+│   Every table is locked down — only  │    │                        │
+│   PayMemo's own server can touch it. │    │                        │
+│   For local development PayMemo can  │    │                        │
+│   use a plain JSON file instead.     │    │                        │
+└──────────────────────────────────────┘    │                        │
+                                            │                        │
+┌──────────────────────────────────────┐    │                        │
+│ LAYER 5 — THE LIVE WATCHER           │────┘                        │
+│                                      │                             │
+│   A tiny program running 24/7        │                             │
+│   (on Railway, Fly.io, or Render):   │                             │
+│                                      │                             │
+│   Every 2 seconds:                   │                             │
+│     "Hey Morph, any new block?"      │                             │
+│   If yes:                            │                             │
+│     "Server, please scan it for any  │                             │
+│      transactions on watched wallets"│                             │
+└──────────────────────────────────────┘                             │
+       │                                                             │
+       │ Reads blocks · transactions · balances from the chain       │
+       ▼                                                             ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ LAYER 6 — THE BLOCKCHAIN  (Morph Hoodi, Layer-2 testnet)                     │
+│                                                                              │
+│   Chain ID 2910                                                              │
+│   Public address book:  https://explorer-hoodi.morph.network                 │
+│                                                                              │
+│   Money you can move: native ETH, L2USDC stablecoin, and WETH                │
+│                                                                              │
+│   PayMemo's own smart contract: BatchPayout                                  │
+│     Pay many people in a single transaction (great for payroll, splits)      │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+How it flows in real life:
+
+  Way 1 — Send a payment from the PayMemo website
+    You fill out the form  →  the app encrypts the memo right in your browser
+    →  your wallet signs and sends the transaction to Morph
+    →  the encrypted memo + transaction ID are saved to the server
+    →  next time you open your ledger, you (and only you) see it readable.
+
+  Way 2 — You paid from another wallet app (the extension catches it)
+    You sign a transaction anywhere  →  Morph confirms it in a new block
+    →  within 2 seconds the live watcher notices the new block
+    →  it tells the server "scan this block for our watched wallets"
+    →  the server finds your transaction and saves a pending row
+    →  the extension popup opens and asks "what was this for?"
+    →  you type a memo  →  it's encrypted and saved
+    →  it appears in your ledger.
+
+  Way 3 — An AI agent wants to remember why it spent money
+    The agent posts a "payment reason" to a public, rate-limited endpoint
+    →  the reason is stored encrypted under your account
+    →  you review and export everything from the Agents dashboard.
 ```
 
-### Two main ways to use PayMemo
-
-- **Send with a memo (from the website):** You fill out the form, your browser encrypts the memo, your wallet signs the transaction, the tx goes to Morph, and the encrypted memo + transaction hash get saved. Open your ledger and there it is — readable only by you.
-- **Capture wallets you use elsewhere (with the extension):** You make a payment in any wallet app. The worker spots it on-chain within seconds. The extension pops up, you type what the payment was for, it gets encrypted, and it lands in your ledger alongside everything else.
-
-There's also a third path for AI agents and automated scripts: they can post a "payment intent" (a reason for a future payment) through a public, rate-limited endpoint. The reason is encrypted, and you review and approve everything from a dashboard.
-
-See `public/architecture.html` for a full visual diagram if you want to see every line connecting every piece.
+See `public/architecture.html` for the full visual diagram — open it in any browser.
 
 ### Trust model
 
